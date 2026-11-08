@@ -1,0 +1,80 @@
+name: Publish Arknights Randomizer
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: '17 * * * *'
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: app
+    outputs:
+      publish: ${{ steps.source.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          repository: AK-RANDOM/zoot-randomizer-arknights
+          ref: main
+          path: app
+          persist-credentials: false
+      - name: Check published source revision
+        id: source
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          revision="$(git rev-parse HEAD)"
+          published=""
+          if [ "$EVENT_NAME" = "schedule" ]; then
+            published="$(curl -fsS --max-time 15 "https://ak-random.github.io/source-revision.txt?revision=$revision" || true)"
+          fi
+          if [ "$revision" = "$published" ]; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/setup-node@v7
+        if: steps.source.outputs.publish == 'true'
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Build static site
+        if: steps.source.outputs.publish == 'true'
+        run: |
+          npm ci
+          npm run data:update
+          npm run data:validate
+          npm run build:web
+          cp LICENSE THIRD_PARTY_NOTICES.md dist/web/
+          git rev-parse HEAD > dist/web/source-revision.txt
+      - uses: actions/upload-pages-artifact@v4
+        if: steps.source.outputs.publish == 'true'
+        with:
+          path: app/dist/web
+  deploy:
+    needs: build
+    if: needs.build.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/deploy-pages@v4
+        id: deployment
