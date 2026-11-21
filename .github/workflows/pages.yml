@@ -54,6 +54,8 @@ jobs:
           cache-dependency-path: app/package-lock.json
       - name: Build static site
         if: steps.source.outputs.publish == 'true'
+        env:
+          VITE_WEB_ACCOUNT_API_ORIGIN: ${{ vars.VITE_WEB_ACCOUNT_API_ORIGIN }}
         run: |
           npm ci
           npm run data:update
